@@ -265,6 +265,48 @@ curl "http://localhost:9090/api/v1/query?query=flowforge_worker_jobs_completed_t
 curl "http://localhost:9090/api/v1/query?query=kafka_consumergroup_lag"
 ```
 
+## Load test 방법
+
+k6 설치 후 로컬 Docker Compose 환경에서 실행한다.
+
+```bash
+make load-test
+make load-test-spike
+make load-test-soak
+```
+
+Kubernetes Ingress를 대상으로 실행할 때는 Host 헤더를 지정한다.
+
+```bash
+make load-test-k8s
+```
+
+직접 환경변수를 지정할 수도 있다.
+
+```bash
+BASE_URL=http://localhost:8080 HOST_HEADER=flowforge.local k6 run load-test/k6/create-jobs.js
+```
+
+스크립트:
+
+- `load-test/k6/create-jobs.js`: 50 VU, 3분 기본 부하 테스트
+- `load-test/k6/spike-test.js`: 10 VU에서 300 VU까지 증가하는 5분 스파이크 테스트
+- `load-test/k6/soak-test.js`: 10,000건 job 생성 대량 메시지 테스트
+
+## Load test 결과
+
+결과 기록 문서는 `docs/load-test-result.md`에 둔다. 실제 환경에서 실행한 뒤 다음 값을 갱신한다.
+
+- 총 요청 수
+- 성공률
+- 평균 응답시간
+- P95 응답시간
+- 최대 Kafka lag
+- lag 해소 시간
+- worker replica 변화
+- DLQ 발생 건수
+- 재처리 성공 건수
+
 리소스 삭제:
 
 ```bash

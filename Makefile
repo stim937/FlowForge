@@ -49,3 +49,15 @@ k8s-grafana-forward:
 
 kafka-status:
 	kubectl get kafka,kafkanodepool,kafkatopic -n event-platform
+
+load-test:
+	k6 run load-test/k6/create-jobs.js
+
+load-test-spike:
+	k6 run load-test/k6/spike-test.js
+
+load-test-soak:
+	k6 run load-test/k6/soak-test.js
+
+load-test-k8s:
+	HOST_HEADER=flowforge.local BASE_URL=http://localhost:8080 k6 run load-test/k6/create-jobs.js
