@@ -60,18 +60,26 @@ curl http://localhost:8081/actuator/health
 
 ## Kubernetes 배포
 
-Phase 2 범위의 기본 Kubernetes 배포 manifest는 `infra/k8s` 아래에 있다. Strimzi/KEDA/Monitoring은 다음 단계에서 별도로 추가한다.
+Kubernetes 배포 manifest는 `infra/k8s` 아래에 있다. 현재 범위에는 기본 배포와 autoscaling 리소스가 포함된다. Strimzi와 Monitoring은 다음 단계에서 별도로 추가한다.
 
 사전 준비:
 
 - Docker
 - kubectl
 - k3d
+- Helm
 
 클러스터 생성:
 
 ```bash
 make k3d-create
+```
+
+HPA/KEDA 준비:
+
+```bash
+make metrics-install
+make keda-install
 ```
 
 이미지 빌드:
@@ -97,6 +105,8 @@ Pod 상태 확인:
 ```bash
 kubectl get pods -n event-platform
 kubectl get ingress -n event-platform
+kubectl get hpa -n event-platform
+kubectl get scaledobject -n event-platform
 ```
 
 모든 Pod가 `Running` 또는 `Ready`가 된 뒤 API health 확인:
@@ -127,6 +137,37 @@ curl -X POST http://localhost:8080/api/v1/jobs \
 ```bash
 curl -H "Host: flowforge.local" http://localhost:8080/api/v1/jobs/{jobId}
 ```
+
+## Autoscaling 전략
+
+API는 Kubernetes HPA로 확장한다.
+
+```text
+minReplicas: 2
+maxReplicas: 10
+CPU averageUtilization: 60
+Memory averageUtilization: 75
+```
+
+Worker는 KEDA Kafka scaler로 확장한다.
+
+```text
+minReplicaCount: 1
+maxReplicaCount: 10
+topic: data.process.requested
+consumerGroup: data-worker-group
+lagThreshold: 100
+```
+
+상태 확인:
+
+```bash
+kubectl describe hpa data-api-service -n event-platform
+kubectl describe scaledobject data-worker-service -n event-platform
+kubectl get deploy data-api-service data-worker-service -n event-platform
+```
+
+대량 job 생성으로 Kafka lag를 만들면 KEDA가 `data-worker-service` replica를 늘린다. 부하가 줄고 lag가 해소되면 cooldown 이후 replica가 감소한다.
 
 리소스 삭제:
 

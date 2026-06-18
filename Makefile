@@ -23,7 +23,15 @@ k3d-import-images:
 	k3d image import flowforge-data-api-service:latest flowforge-data-worker-service:latest -c event-platform
 
 k8s-apply:
-	kubectl apply -f infra/k8s/
+	kubectl apply -k infra/k8s/
 
 k8s-delete:
-	kubectl delete -f infra/k8s/
+	kubectl delete -k infra/k8s/
+
+metrics-install:
+	kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+
+keda-install:
+	helm repo add kedacore https://kedacore.github.io/charts
+	helm repo update
+	helm upgrade --install keda kedacore/keda --namespace keda --create-namespace
