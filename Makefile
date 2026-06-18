@@ -1,3 +1,7 @@
+HELM_NAMESPACE ?= event-platform
+HELM_VALUES ?= infra/helm/platform/values-local.yaml
+STRIMZI_NAMESPACE ?= event-platform
+
 up:
 	docker compose up -d --build
 
@@ -23,9 +27,9 @@ k3d-import-images:
 	k3d image import flowforge-data-api-service:latest flowforge-data-worker-service:latest -c event-platform
 
 strimzi-install:
-	kubectl apply -f infra/k8s/00-namespace.yaml
-	kubectl apply -f "https://strimzi.io/install/latest?namespace=event-platform" -n event-platform
-	kubectl rollout status deployment/strimzi-cluster-operator -n event-platform --timeout=300s
+	kubectl create namespace $(STRIMZI_NAMESPACE) --dry-run=client -o yaml | kubectl apply -f -
+	kubectl apply -f "https://strimzi.io/install/latest?namespace=$(STRIMZI_NAMESPACE)" -n $(STRIMZI_NAMESPACE)
+	kubectl rollout status deployment/strimzi-cluster-operator -n $(STRIMZI_NAMESPACE) --timeout=300s
 
 k8s-apply:
 	kubectl apply -k infra/k8s/
@@ -49,6 +53,15 @@ k8s-grafana-forward:
 
 kafka-status:
 	kubectl get kafka,kafkanodepool,kafkatopic -n event-platform
+
+helm-template:
+	helm template flowforge-platform infra/helm/platform -f $(HELM_VALUES)
+
+helm-install:
+	helm upgrade --install flowforge-platform infra/helm/platform -f $(HELM_VALUES) --namespace $(HELM_NAMESPACE) --create-namespace
+
+helm-delete:
+	helm uninstall flowforge-platform --namespace $(HELM_NAMESPACE)
 
 load-test:
 	k6 run load-test/k6/create-jobs.js

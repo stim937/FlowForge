@@ -1,0 +1,796 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.global.namespace }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: flowforge-config
+  namespace: {{ .Values.global.namespace }}
+data:
+  postgres-host: {{ .Values.config.postgres.host | quote }}
+  postgres-port: {{ .Values.config.postgres.port | quote }}
+  postgres-db: {{ .Values.config.postgres.db | quote }}
+  redis-host: {{ .Values.config.redis.host | quote }}
+  redis-port: {{ .Values.config.redis.port | quote }}
+  kafka-bootstrap-servers: {{ .Values.config.kafka.bootstrapServers | quote }}
+  topic-requested: {{ .Values.config.topics.requested | quote }}
+  topic-retry: {{ .Values.config.topics.retry | quote }}
+  topic-dlq: {{ .Values.config.topics.dlq | quote }}
+  worker-consumer-group: {{ .Values.config.worker.consumerGroup | quote }}
+  worker-max-retry-count: {{ .Values.config.worker.maxRetryCount | quote }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: flowforge-secret
+  namespace: {{ .Values.global.namespace }}
+type: Opaque
+stringData:
+  postgres-user: {{ .Values.config.postgres.user | quote }}
+  postgres-password: {{ .Values.config.postgres.password | quote }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: {{ .Values.global.namespace }}
+spec:
+  selector:
+    app: postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  namespace: {{ .Values.global.namespace }}
+spec:
+  serviceName: postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: {{ .Values.postgres.image | quote }}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 5432
+              name: postgres
+          env:
+            - name: POSTGRES_DB
+              valueFrom:
+                configMapKeyRef:
+                  name: flowforge-config
+                  key: postgres-db
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: flowforge-secret
+                  key: postgres-user
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: flowforge-secret
+                  key: postgres-password
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          resources:
+{{ toYaml .Values.postgres.resources | nindent 12 }}
+          volumeMounts:
+            - name: postgres-data
+              mountPath: /var/lib/postgresql/data
+  volumeClaimTemplates:
+    - metadata:
+        name: postgres-data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: {{ .Values.postgres.storage | quote }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: {{ .Values.global.namespace }}
+spec:
+  selector:
+    app: redis
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: 6379
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: {{ .Values.global.namespace }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      containers:
+        - name: redis
+          image: {{ .Values.redis.image | quote }}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 6379
+              name: redis
+          readinessProbe:
+            exec:
+              command:
+                - redis-cli
+                - ping
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            exec:
+              command:
+                - redis-cli
+                - ping
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          resources:
+{{ toYaml .Values.redis.resources | nindent 12 }}
+{{- if .Values.kafka.enabled }}
+---
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaNodePool
+metadata:
+  name: {{ .Values.kafka.nodePool.name }}
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    strimzi.io/cluster: {{ .Values.config.kafka.clusterName }}
+spec:
+  replicas: {{ .Values.kafka.nodePool.replicas }}
+  roles:
+    - controller
+    - broker
+  storage:
+{{ toYaml .Values.kafka.nodePool.storage | nindent 4 }}
+  resources:
+{{ toYaml .Values.kafka.nodePool.resources | nindent 4 }}
+---
+apiVersion: kafka.strimzi.io/v1
+kind: Kafka
+metadata:
+  name: {{ .Values.config.kafka.clusterName }}
+  namespace: {{ .Values.global.namespace }}
+  annotations:
+    strimzi.io/node-pools: enabled
+    strimzi.io/kraft: enabled
+spec:
+  kafka:
+    version: {{ .Values.config.kafka.version | quote }}
+    metadataVersion: {{ .Values.config.kafka.metadataVersion | quote }}
+    listeners:
+      - name: plain
+        port: 9092
+        type: internal
+        tls: false
+    config:
+      offsets.topic.replication.factor: 1
+      transaction.state.log.replication.factor: 1
+      transaction.state.log.min.isr: 1
+      default.replication.factor: 1
+      min.insync.replicas: 1
+      auto.create.topics.enable: false
+    template:
+      pod:
+        metadata:
+          labels:
+            app: flowforge-kafka
+  entityOperator:
+    topicOperator: {}
+{{- if .Values.kafka.exporter.enabled }}
+  kafkaExporter:
+    topicRegex: ".*"
+    groupRegex: ".*"
+    resources:
+{{ toYaml .Values.kafka.exporter.resources | nindent 6 }}
+{{- end }}
+{{- range $topic := list
+  (dict "name" "data-process-requested" "topicName" $.Values.config.topics.requested "partitions" 6)
+  (dict "name" "data-process-retry" "topicName" $.Values.config.topics.retry "partitions" 6)
+  (dict "name" "data-process-completed" "topicName" $.Values.config.topics.completed "partitions" 3)
+  (dict "name" "data-process-failed" "topicName" $.Values.config.topics.failed "partitions" 3)
+  (dict "name" "data-process-dlq" "topicName" $.Values.config.topics.dlq "partitions" 1)
+  (dict "name" "notification-requested" "topicName" $.Values.config.topics.notificationRequested "partitions" 3)
+}}
+---
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  name: {{ $topic.name }}
+  namespace: {{ $.Values.global.namespace }}
+  labels:
+    strimzi.io/cluster: {{ $.Values.config.kafka.clusterName }}
+spec:
+  topicName: {{ $topic.topicName }}
+  partitions: {{ $topic.partitions }}
+  replicas: 1
+  config:
+    retention.ms: 604800000
+{{- end }}
+{{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: data-api-service
+  namespace: {{ .Values.global.namespace }}
+spec:
+  selector:
+    app: data-api-service
+  ports:
+    - name: http
+      port: {{ .Values.dataApiService.service.port }}
+      targetPort: 8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: data-api-service
+  namespace: {{ .Values.global.namespace }}
+spec:
+  replicas: {{ .Values.dataApiService.replicas }}
+  selector:
+    matchLabels:
+      app: data-api-service
+  template:
+    metadata:
+      labels:
+        app: data-api-service
+    spec:
+      containers:
+        - name: data-api-service
+          image: "{{ .Values.dataApiService.image.repository }}:{{ .Values.dataApiService.image.tag }}"
+          imagePullPolicy: {{ .Values.dataApiService.image.pullPolicy }}
+          ports:
+            - containerPort: 8080
+              name: http
+          env:
+            - name: SPRING_DATASOURCE_URL
+              value: jdbc:postgresql://postgres:5432/{{ .Values.config.postgres.db }}
+            - name: SPRING_DATASOURCE_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: flowforge-secret
+                  key: postgres-user
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: flowforge-secret
+                  key: postgres-password
+            - name: SPRING_DATA_REDIS_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: flowforge-config
+                  key: redis-host
+            - name: SPRING_DATA_REDIS_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: flowforge-config
+                  key: redis-port
+            - name: SPRING_KAFKA_BOOTSTRAP_SERVERS
+              valueFrom:
+                configMapKeyRef:
+                  name: flowforge-config
+                  key: kafka-bootstrap-servers
+            - name: APP_KAFKA_TOPICS_REQUESTED
+              valueFrom:
+                configMapKeyRef:
+                  name: flowforge-config
+                  key: topic-requested
+            - name: APP_KAFKA_TOPICS_RETRY
+              valueFrom:
+                configMapKeyRef:
+                  name: flowforge-config
+                  key: topic-retry
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 12
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            failureThreshold: 6
+          resources:
+{{ toYaml .Values.dataApiService.resources | nindent 12 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: data-worker-service
+  namespace: {{ .Values.global.namespace }}
+spec:
+  selector:
+    app: data-worker-service
+  ports:
+    - name: http
+      port: {{ .Values.dataWorkerService.service.port }}
+      targetPort: 8081
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: data-worker-service
+  namespace: {{ .Values.global.namespace }}
+spec:
+  replicas: {{ .Values.dataWorkerService.replicas }}
+  selector:
+    matchLabels:
+      app: data-worker-service
+  template:
+    metadata:
+      labels:
+        app: data-worker-service
+    spec:
+      containers:
+        - name: data-worker-service
+          image: "{{ .Values.dataWorkerService.image.repository }}:{{ .Values.dataWorkerService.image.tag }}"
+          imagePullPolicy: {{ .Values.dataWorkerService.image.pullPolicy }}
+          ports:
+            - containerPort: 8081
+              name: http
+          env:
+            - name: SERVER_PORT
+              value: "8081"
+            - name: SPRING_DATASOURCE_URL
+              value: jdbc:postgresql://postgres:5432/{{ .Values.config.postgres.db }}
+            - name: SPRING_DATASOURCE_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: flowforge-secret
+                  key: postgres-user
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: flowforge-secret
+                  key: postgres-password
+            - name: SPRING_DATA_REDIS_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: flowforge-config
+                  key: redis-host
+            - name: SPRING_DATA_REDIS_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: flowforge-config
+                  key: redis-port
+            - name: SPRING_KAFKA_BOOTSTRAP_SERVERS
+              valueFrom:
+                configMapKeyRef:
+                  name: flowforge-config
+                  key: kafka-bootstrap-servers
+            - name: SPRING_KAFKA_CONSUMER_GROUP_ID
+              valueFrom:
+                configMapKeyRef:
+                  name: flowforge-config
+                  key: worker-consumer-group
+            - name: APP_KAFKA_TOPICS_REQUESTED
+              valueFrom:
+                configMapKeyRef:
+                  name: flowforge-config
+                  key: topic-requested
+            - name: APP_KAFKA_TOPICS_RETRY
+              valueFrom:
+                configMapKeyRef:
+                  name: flowforge-config
+                  key: topic-retry
+            - name: APP_KAFKA_TOPICS_DLQ
+              valueFrom:
+                configMapKeyRef:
+                  name: flowforge-config
+                  key: topic-dlq
+            - name: APP_WORKER_MAX_RETRY_COUNT
+              valueFrom:
+                configMapKeyRef:
+                  name: flowforge-config
+                  key: worker-max-retry-count
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 12
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            failureThreshold: 6
+          resources:
+{{ toYaml .Values.dataWorkerService.resources | nindent 12 }}
+{{- if .Values.ingress.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: data-api-service
+  namespace: {{ .Values.global.namespace }}
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  rules:
+    - host: {{ .Values.ingress.host }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: data-api-service
+                port:
+                  number: {{ .Values.dataApiService.service.port }}
+{{- end }}
+{{- if .Values.dataApiService.autoscaling.enabled }}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: data-api-service
+  namespace: {{ .Values.global.namespace }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: data-api-service
+  minReplicas: {{ .Values.dataApiService.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.dataApiService.autoscaling.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.dataApiService.autoscaling.cpuAverageUtilization }}
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.dataApiService.autoscaling.memoryAverageUtilization }}
+{{- end }}
+{{- if .Values.dataWorkerService.keda.enabled }}
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: data-worker-service
+  namespace: {{ .Values.global.namespace }}
+spec:
+  scaleTargetRef:
+    name: data-worker-service
+  pollingInterval: {{ .Values.dataWorkerService.keda.pollingInterval }}
+  cooldownPeriod: {{ .Values.dataWorkerService.keda.cooldownPeriod }}
+  minReplicaCount: {{ .Values.dataWorkerService.keda.minReplicaCount }}
+  maxReplicaCount: {{ .Values.dataWorkerService.keda.maxReplicaCount }}
+  triggers:
+    - type: kafka
+      metadata:
+        bootstrapServers: {{ .Values.config.kafka.bootstrapServers }}
+        consumerGroup: {{ .Values.config.worker.consumerGroup }}
+        topic: {{ .Values.config.topics.requested }}
+        lagThreshold: {{ .Values.dataWorkerService.keda.lagThreshold | quote }}
+{{- end }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: {{ .Values.global.namespace }}
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+      evaluation_interval: 15s
+
+    scrape_configs:
+      - job_name: prometheus
+        static_configs:
+          - targets:
+              - localhost:9090
+
+      - job_name: data-api-service
+        metrics_path: /actuator/prometheus
+        static_configs:
+          - targets:
+              - data-api-service:8080
+
+      - job_name: data-worker-service
+        metrics_path: /actuator/prometheus
+        static_configs:
+          - targets:
+              - data-worker-service:8081
+
+      - job_name: kafka-exporter
+        static_configs:
+          - targets:
+              - {{ .Values.config.kafka.clusterName }}-kafka-exporter:9404
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+  namespace: {{ .Values.global.namespace }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prometheus
+  template:
+    metadata:
+      labels:
+        app: prometheus
+    spec:
+      containers:
+        - name: prometheus
+          image: {{ .Values.prometheus.image | quote }}
+          imagePullPolicy: IfNotPresent
+          args:
+            - --config.file=/etc/prometheus/prometheus.yml
+            - --storage.tsdb.path=/prometheus
+          ports:
+            - name: http
+              containerPort: 9090
+          readinessProbe:
+            httpGet:
+              path: /-/ready
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /-/healthy
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          resources:
+{{ toYaml .Values.prometheus.resources | nindent 12 }}
+          volumeMounts:
+            - name: prometheus-config
+              mountPath: /etc/prometheus
+            - name: prometheus-data
+              mountPath: /prometheus
+      volumes:
+        - name: prometheus-config
+          configMap:
+            name: prometheus-config
+        - name: prometheus-data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus
+  namespace: {{ .Values.global.namespace }}
+spec:
+  selector:
+    app: prometheus
+  ports:
+    - name: http
+      port: 9090
+      targetPort: 9090
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-provisioning
+  namespace: {{ .Values.global.namespace }}
+data:
+  datasource.yml: |
+    apiVersion: 1
+
+    datasources:
+      - name: Prometheus
+        uid: Prometheus
+        type: prometheus
+        access: proxy
+        url: http://prometheus:9090
+        isDefault: true
+        editable: false
+  dashboards.yml: |
+    apiVersion: 1
+
+    providers:
+      - name: FlowForge
+        type: file
+        disableDeletion: false
+        updateIntervalSeconds: 30
+        options:
+          path: /var/lib/grafana/dashboards
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-flowforge
+  namespace: {{ .Values.global.namespace }}
+data:
+  flowforge-overview.json: |
+    {
+      "title": "FlowForge Overview",
+      "uid": "flowforge-overview",
+      "schemaVersion": 39,
+      "refresh": "10s",
+      "timezone": "browser",
+      "time": {
+        "from": "now-15m",
+        "to": "now"
+      },
+      "panels": [
+        {
+          "id": 1,
+          "type": "timeseries",
+          "title": "HTTP Requests",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+          "targets": [
+            {
+              "expr": "sum by (job, uri, status) (rate(http_server_requests_seconds_count[1m]))",
+              "legendFormat": "{{ "{{job}} {{uri}} {{status}}" }}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "id": 2,
+          "type": "timeseries",
+          "title": "Worker Job Outcomes",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+          "targets": [
+            {
+              "expr": "flowforge_worker_jobs_completed_total",
+              "legendFormat": "completed",
+              "refId": "A"
+            },
+            {
+              "expr": "flowforge_worker_jobs_retried_total",
+              "legendFormat": "retried",
+              "refId": "B"
+            },
+            {
+              "expr": "flowforge_worker_jobs_dlq_total",
+              "legendFormat": "dlq",
+              "refId": "C"
+            }
+          ]
+        },
+        {
+          "id": 3,
+          "type": "timeseries",
+          "title": "JVM Memory Used",
+          "gridPos": { "h": 8, "w": 24, "x": 0, "y": 8 },
+          "targets": [
+            {
+              "expr": "sum by (job, area) (jvm_memory_used_bytes)",
+              "legendFormat": "{{ "{{job}} {{area}}" }}",
+              "refId": "A"
+            }
+          ]
+        }
+      ]
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  namespace: {{ .Values.global.namespace }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grafana
+  template:
+    metadata:
+      labels:
+        app: grafana
+    spec:
+      containers:
+        - name: grafana
+          image: {{ .Values.grafana.image | quote }}
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: GF_SECURITY_ADMIN_USER
+              value: {{ .Values.grafana.adminUser | quote }}
+            - name: GF_SECURITY_ADMIN_PASSWORD
+              value: {{ .Values.grafana.adminPassword | quote }}
+            - name: GF_USERS_ALLOW_SIGN_UP
+              value: "false"
+          ports:
+            - name: http
+              containerPort: 3000
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 20
+          resources:
+{{ toYaml .Values.grafana.resources | nindent 12 }}
+          volumeMounts:
+            - name: grafana-datasources
+              mountPath: /etc/grafana/provisioning/datasources
+            - name: grafana-dashboards-provider
+              mountPath: /etc/grafana/provisioning/dashboards
+            - name: grafana-dashboards
+              mountPath: /var/lib/grafana/dashboards
+            - name: grafana-data
+              mountPath: /var/lib/grafana
+      volumes:
+        - name: grafana-datasources
+          configMap:
+            name: grafana-provisioning
+            items:
+              - key: datasource.yml
+                path: datasource.yml
+        - name: grafana-dashboards-provider
+          configMap:
+            name: grafana-provisioning
+            items:
+              - key: dashboards.yml
+                path: dashboards.yml
+        - name: grafana-dashboards
+          configMap:
+            name: grafana-dashboard-flowforge
+        - name: grafana-data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana
+  namespace: {{ .Values.global.namespace }}
+spec:
+  selector:
+    app: grafana
+  ports:
+    - name: http
+      port: 3000
+      targetPort: 3000

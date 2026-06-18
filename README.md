@@ -235,6 +235,46 @@ kubectl get svc flowforge-kafka-kafka-bootstrap -n event-platform
 kubectl logs deploy/strimzi-cluster-operator -n event-platform
 ```
 
+## Helm 배포
+
+Helm chart는 `infra/helm/platform` 아래에 있다. 초기 chart는 전체 플랫폼을 한 번에 배포하는 `flowforge-platform` chart이며, 환경별 values를 분리한다.
+
+```text
+infra/helm/platform/values.yaml
+infra/helm/platform/values-local.yaml
+infra/helm/platform/values-dev.yaml
+```
+
+렌더링 확인:
+
+```bash
+make helm-template
+```
+
+설치:
+
+```bash
+make strimzi-install
+make keda-install
+make helm-install
+```
+
+삭제:
+
+```bash
+make helm-delete
+```
+
+Helm chart는 Strimzi CRD와 KEDA CRD가 이미 설치되어 있다는 전제로 `Kafka`, `KafkaNodePool`, `KafkaTopic`, `ScaledObject` 리소스를 렌더링한다.
+
+dev values로 렌더링하거나 설치할 때는 변수로 namespace와 values 파일을 바꾼다.
+
+```bash
+make helm-template HELM_VALUES=infra/helm/platform/values-dev.yaml
+make strimzi-install STRIMZI_NAMESPACE=event-platform-dev
+make helm-install HELM_NAMESPACE=event-platform-dev HELM_VALUES=infra/helm/platform/values-dev.yaml
+```
+
 ## Monitoring 대시보드
 
 Prometheus는 다음 endpoint를 scrape한다.
