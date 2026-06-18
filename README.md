@@ -141,12 +141,62 @@ job 상태와 처리 건수를 조회한다.
 ## Kafka topic
 
 - `data.process.requested`: API가 발행하고 Worker가 consume한다.
+- `data.process.retry`: Worker가 재시도 대상 이벤트를 발행하고 다시 consume한다.
+- `data.process.dlq`: 재시도 한도를 초과한 이벤트가 이동한다.
 
 Phase 1에서는 Kafka topic auto-create를 사용한다. Phase 3에서 Strimzi `KafkaTopic` 리소스로 관리한다.
 
 ## Retry/DLQ 전략
 
-Phase 1의 범위는 정상 처리 경로다. 실패 이벤트 retry/DLQ, 중복 이벤트 방지는 Phase 4에서 `processed_events`, `failed_events`, retry topic, DLQ topic 기반으로 확장한다.
+Worker는 이벤트 처리 전에 `processed_events` 테이블에서 `eventId` 중복 여부를 확인한다. 이미 처리된 이벤트는 다시 실행하지 않는다.
+
+실패 이벤트는 다음 규칙으로 처리한다.
+
+```text
+retryCount < maxRetryCount: job 상태 RETRYING, data.process.retry 발행
+retryCount >= maxRetryCount: job 상태 DLQ, failed_events 저장, data.process.dlq 발행
+```
+
+로컬 기본값:
+
+```text
+APP_WORKER_MAX_RETRY_COUNT=3
+```
+
+장애 주입은 요청 payload에 `forceFail: true`를 넣어서 확인한다.
+
+```bash
+curl -X POST http://localhost:8080/api/v1/jobs \
+  -H "Content-Type: application/json" \
+  -d '{
+    "requester": "test-user",
+    "dataType": "CSV",
+    "itemCount": 1000,
+    "idempotencyKey": "dlq-demo-key-1",
+    "payload": {
+      "source": "mock",
+      "forceFail": true
+    }
+  }'
+```
+
+잠시 후 job 상태를 조회하면 재시도 한도 초과 뒤 `DLQ`가 된다.
+
+```bash
+curl http://localhost:8080/api/v1/jobs/{jobId}
+```
+
+DLQ 이벤트 조회:
+
+```bash
+curl http://localhost:8080/api/v1/admin/dlq-events
+```
+
+DLQ 이벤트 재처리:
+
+```bash
+curl -X POST http://localhost:8080/api/v1/admin/dlq-events/{eventId}/reprocess
+```
 
 ## 종료
 

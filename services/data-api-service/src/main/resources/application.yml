@@ -36,3 +36,4 @@ app:
   kafka:
     topics:
       requested: ${APP_KAFKA_TOPICS_REQUESTED:data.process.requested}
+      retry: ${APP_KAFKA_TOPICS_RETRY:data.process.retry}

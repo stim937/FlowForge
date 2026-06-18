@@ -65,6 +65,7 @@ services:
       SPRING_DATA_REDIS_HOST: redis
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       APP_KAFKA_TOPICS_REQUESTED: data.process.requested
+      APP_KAFKA_TOPICS_RETRY: data.process.retry
     ports:
       - "8080:8080"
     depends_on:
@@ -89,6 +90,9 @@ services:
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       SPRING_KAFKA_CONSUMER_GROUP_ID: data-worker-group
       APP_KAFKA_TOPICS_REQUESTED: data.process.requested
+      APP_KAFKA_TOPICS_RETRY: data.process.retry
+      APP_KAFKA_TOPICS_DLQ: data.process.dlq
+      APP_WORKER_MAX_RETRY_COUNT: 3
     ports:
       - "8081:8081"
     depends_on:

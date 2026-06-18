@@ -76,6 +76,17 @@ public class JobEntity {
         this.updatedAt = Instant.now();
     }
 
+    public void markRetrying() {
+        this.status = JobStatus.RETRYING;
+        this.updatedAt = Instant.now();
+    }
+
+    public void markDlq() {
+        this.status = JobStatus.DLQ;
+        this.failedCount = this.itemCount;
+        this.updatedAt = Instant.now();
+    }
+
     public String getJobId() {
         return jobId;
     }
