@@ -25,6 +25,8 @@ Redis: job progress cache
 Prometheus/Grafana: API, JVM, worker outcome metrics
 ```
 
+상세 설계 문서는 `docs/architecture.md`에 있다.
+
 ## 기술 스택
 
 - Java 17
