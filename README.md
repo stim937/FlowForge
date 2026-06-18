@@ -1,6 +1,6 @@
 # Event-Driven Data Processing Platform
 
-Kafka 기반 비동기 데이터 처리 플랫폼이다. 현재는 Docker Compose 기반 API/Worker/Kafka/PostgreSQL/Redis 실행, retry/DLQ/idempotency 처리, Kubernetes 기본 배포 manifest까지 제공한다.
+Kafka 기반 비동기 데이터 처리 플랫폼이다. 현재는 Docker Compose 기반 API/Worker/Kafka/PostgreSQL/Redis/Prometheus/Grafana 실행, retry/DLQ/idempotency 처리, Kubernetes 기본 배포와 autoscaling/monitoring manifest까지 제공한다.
 
 ## 아키텍처
 
@@ -22,6 +22,7 @@ data-worker-service
 PostgreSQL
 
 Redis: job progress cache
+Prometheus/Grafana: API, JVM, worker outcome metrics
 ```
 
 ## 기술 스택
@@ -34,6 +35,9 @@ Redis: job progress cache
 - Kafka
 - Docker Compose
 - Kubernetes
+- KEDA
+- Prometheus
+- Grafana
 - k3d 또는 kind
 
 ## 로컬 실행
@@ -56,11 +60,20 @@ make up
 docker compose ps
 curl http://localhost:8080/actuator/health
 curl http://localhost:8081/actuator/health
+curl http://localhost:8080/actuator/prometheus
+curl http://localhost:8081/actuator/prometheus
 ```
+
+로컬 모니터링:
+
+- Prometheus: http://localhost:9090
+- Grafana: http://localhost:3000
+- Grafana 계정: `admin` / `admin`
+- 기본 대시보드: `FlowForge Overview`
 
 ## Kubernetes 배포
 
-Kubernetes 배포 manifest는 `infra/k8s` 아래에 있다. 현재 범위에는 기본 배포와 autoscaling 리소스가 포함된다. Strimzi와 Monitoring은 다음 단계에서 별도로 추가한다.
+Kubernetes 배포 manifest는 `infra/k8s` 아래에 있다. 현재 범위에는 기본 배포, autoscaling, monitoring 리소스가 포함된다. Strimzi 기반 Kafka 관리는 이후 단계에서 별도로 추가한다.
 
 사전 준비:
 
@@ -107,6 +120,7 @@ kubectl get pods -n event-platform
 kubectl get ingress -n event-platform
 kubectl get hpa -n event-platform
 kubectl get scaledobject -n event-platform
+kubectl get svc prometheus grafana -n event-platform
 ```
 
 모든 Pod가 `Running` 또는 `Ready`가 된 뒤 API health 확인:
@@ -138,6 +152,19 @@ curl -X POST http://localhost:8080/api/v1/jobs \
 curl -H "Host: flowforge.local" http://localhost:8080/api/v1/jobs/{jobId}
 ```
 
+Prometheus/Grafana 접근:
+
+```bash
+make k8s-prometheus-forward
+make k8s-grafana-forward
+```
+
+각 명령은 터미널을 점유하므로 별도 터미널에서 실행한다.
+
+- Prometheus: http://localhost:9090
+- Grafana: http://localhost:3000
+- Grafana 계정: `admin` / `admin`
+
 ## Autoscaling 전략
 
 API는 Kubernetes HPA로 확장한다.
@@ -168,6 +195,32 @@ kubectl get deploy data-api-service data-worker-service -n event-platform
 ```
 
 대량 job 생성으로 Kafka lag를 만들면 KEDA가 `data-worker-service` replica를 늘린다. 부하가 줄고 lag가 해소되면 cooldown 이후 replica가 감소한다.
+
+## Monitoring 대시보드
+
+Prometheus는 다음 endpoint를 scrape한다.
+
+```text
+data-api-service:8080/actuator/prometheus
+data-worker-service:8081/actuator/prometheus
+```
+
+Grafana 기본 대시보드 `FlowForge Overview`는 다음 지표를 보여준다.
+
+- HTTP request count/rate
+- HTTP 평균 응답시간
+- JVM memory 사용량
+- Worker job 처리 결과
+  - `flowforge_worker_jobs_completed_total`
+  - `flowforge_worker_jobs_retried_total`
+  - `flowforge_worker_jobs_dlq_total`
+
+Prometheus에서 직접 확인:
+
+```bash
+curl "http://localhost:9090/api/v1/query?query=up"
+curl "http://localhost:9090/api/v1/query?query=flowforge_worker_jobs_completed_total"
+```
 
 리소스 삭제:
 

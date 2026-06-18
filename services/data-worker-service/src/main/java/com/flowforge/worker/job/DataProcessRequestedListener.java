@@ -3,6 +3,7 @@ package com.flowforge.worker.job;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.flowforge.common.event.DataProcessRequestedEvent;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -32,9 +33,10 @@ public class DataProcessRequestedListener {
     private final String dlqTopic;
     private final int maxRetryCount;
     private final StringRedisTemplate redisTemplate;
+    private final MeterRegistry meterRegistry;
 
     public DataProcessRequestedListener(JobRepository jobRepository) {
-        this(jobRepository, null, null, null, new ObjectMapper().findAndRegisterModules(), "data.process.retry", "data.process.dlq", 3, (StringRedisTemplate) null);
+        this(jobRepository, null, null, null, new ObjectMapper().findAndRegisterModules(), "data.process.retry", "data.process.dlq", 3, (StringRedisTemplate) null, null);
     }
 
     public DataProcessRequestedListener(
@@ -46,7 +48,20 @@ public class DataProcessRequestedListener {
             String dlqTopic,
             int maxRetryCount
     ) {
-        this(jobRepository, processedEventRepository, failedEventRepository, kafkaTemplate, new ObjectMapper().findAndRegisterModules(), retryTopic, dlqTopic, maxRetryCount, (StringRedisTemplate) null);
+        this(jobRepository, processedEventRepository, failedEventRepository, kafkaTemplate, new ObjectMapper().findAndRegisterModules(), retryTopic, dlqTopic, maxRetryCount, (StringRedisTemplate) null, null);
+    }
+
+    public DataProcessRequestedListener(
+            JobRepository jobRepository,
+            ProcessedEventRepository processedEventRepository,
+            FailedEventRepository failedEventRepository,
+            KafkaTemplate<String, DataProcessRequestedEvent> kafkaTemplate,
+            String retryTopic,
+            String dlqTopic,
+            int maxRetryCount,
+            MeterRegistry meterRegistry
+    ) {
+        this(jobRepository, processedEventRepository, failedEventRepository, kafkaTemplate, new ObjectMapper().findAndRegisterModules(), retryTopic, dlqTopic, maxRetryCount, null, meterRegistry);
     }
 
     @Autowired
@@ -59,7 +74,8 @@ public class DataProcessRequestedListener {
             @Value("${app.kafka.topics.retry}") String retryTopic,
             @Value("${app.kafka.topics.dlq}") String dlqTopic,
             @Value("${app.worker.max-retry-count}") int maxRetryCount,
-            ObjectProvider<StringRedisTemplate> redisTemplateProvider
+            ObjectProvider<StringRedisTemplate> redisTemplateProvider,
+            ObjectProvider<MeterRegistry> meterRegistryProvider
     ) {
         this(
                 jobRepository,
@@ -70,7 +86,8 @@ public class DataProcessRequestedListener {
                 retryTopic,
                 dlqTopic,
                 maxRetryCount,
-                redisTemplateProvider.getIfAvailable()
+                redisTemplateProvider.getIfAvailable(),
+                meterRegistryProvider.getIfAvailable()
         );
     }
 
@@ -83,7 +100,8 @@ public class DataProcessRequestedListener {
             String retryTopic,
             String dlqTopic,
             int maxRetryCount,
-            StringRedisTemplate redisTemplate
+            StringRedisTemplate redisTemplate,
+            MeterRegistry meterRegistry
     ) {
         this.jobRepository = jobRepository;
         this.processedEventRepository = processedEventRepository;
@@ -94,6 +112,7 @@ public class DataProcessRequestedListener {
         this.dlqTopic = dlqTopic;
         this.maxRetryCount = maxRetryCount;
         this.redisTemplate = redisTemplate;
+        this.meterRegistry = meterRegistry;
     }
 
     @KafkaListener(topics = {"${app.kafka.topics.requested}", "${app.kafka.topics.retry}"}, groupId = "${spring.kafka.consumer.group-id}")
@@ -127,6 +146,7 @@ public class DataProcessRequestedListener {
             processedEventRepository.save(ProcessedEventEntity.processed(event.eventId(), event.jobId(), event.eventType()));
         }
         cacheProgress(job.getJobId(), "100");
+        incrementCounter("flowforge.worker.jobs.completed");
         log.info("Completed data process request jobId={} eventId={}", event.jobId(), event.eventId());
     }
 
@@ -135,6 +155,7 @@ public class DataProcessRequestedListener {
             job.markRetrying();
             jobRepository.save(job);
             kafkaTemplate.send(retryTopic, event.jobId(), retryEvent(event));
+            incrementCounter("flowforge.worker.jobs.retried");
             log.warn("Published retry event jobId={} eventId={} retryCount={}", event.jobId(), event.eventId(), event.retryCount() + 1);
             return;
         }
@@ -158,6 +179,7 @@ public class DataProcessRequestedListener {
         failedEventRepository.save(failedEvent);
         kafkaTemplate.send(dlqTopic, event.jobId(), event);
         cacheProgress(job.getJobId(), "0");
+        incrementCounter("flowforge.worker.jobs.dlq");
         log.error("Moved event to DLQ jobId={} eventId={}", event.jobId(), event.eventId(), exception);
     }
 
@@ -200,5 +222,12 @@ public class DataProcessRequestedListener {
             return;
         }
         redisTemplate.opsForValue().set("job:" + jobId + ":progress", progress);
+    }
+
+    private void incrementCounter(String counterName) {
+        if (meterRegistry == null) {
+            return;
+        }
+        meterRegistry.counter(counterName).increment();
     }
 }

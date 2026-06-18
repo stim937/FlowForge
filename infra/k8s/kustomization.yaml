@@ -12,3 +12,5 @@ resources:
   - 30-ingress.yaml
   - 40-data-api-hpa.yaml
   - 41-data-worker-keda.yaml
+  - 50-prometheus.yaml
+  - 51-grafana.yaml

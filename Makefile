@@ -35,3 +35,9 @@ keda-install:
 	helm repo add kedacore https://kedacore.github.io/charts
 	helm repo update
 	helm upgrade --install keda kedacore/keda --namespace keda --create-namespace
+
+k8s-prometheus-forward:
+	kubectl port-forward svc/prometheus 9090:9090 -n event-platform
+
+k8s-grafana-forward:
+	kubectl port-forward svc/grafana 3000:3000 -n event-platform

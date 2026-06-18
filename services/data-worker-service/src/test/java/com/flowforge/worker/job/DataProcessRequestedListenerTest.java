@@ -2,6 +2,7 @@ package com.flowforge.worker.job;
 
 import com.flowforge.common.domain.JobStatus;
 import com.flowforge.common.event.DataProcessRequestedEvent;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 import org.springframework.kafka.core.KafkaTemplate;
 
@@ -22,6 +23,7 @@ class DataProcessRequestedListenerTest {
         JobRepository jobRepository = new InMemoryJobRepository();
         ProcessedEventRepository processedEventRepository = new InMemoryProcessedEventRepository();
         FailedEventRepository failedEventRepository = new InMemoryFailedEventRepository();
+        SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
         KafkaTemplate<String, DataProcessRequestedEvent> kafkaTemplate = mock(KafkaTemplate.class);
         JobEntity job = JobEntity.requested("JOB-test", "test-user", "CSV", 1000, "idem-1");
         jobRepository.save(job);
@@ -32,7 +34,8 @@ class DataProcessRequestedListenerTest {
                 kafkaTemplate,
                 "data.process.retry",
                 "data.process.dlq",
-                3
+                3,
+                meterRegistry
         );
         DataProcessRequestedEvent event = new DataProcessRequestedEvent(
                 "EVT-test",
@@ -50,6 +53,7 @@ class DataProcessRequestedListenerTest {
         assertThat(updatedJob.getStatus()).isEqualTo(JobStatus.COMPLETED);
         assertThat(updatedJob.getProcessedCount()).isEqualTo(1000);
         assertThat(processedEventRepository.existsByEventId("EVT-test")).isTrue();
+        assertThat(meterRegistry.counter("flowforge.worker.jobs.completed").count()).isEqualTo(1);
         verify(kafkaTemplate, never()).send(eq("data.process.retry"), any(), any());
         verify(kafkaTemplate, never()).send(eq("data.process.dlq"), any(), any());
     }
@@ -86,6 +90,7 @@ class DataProcessRequestedListenerTest {
         JobRepository jobRepository = new InMemoryJobRepository();
         ProcessedEventRepository processedEventRepository = new InMemoryProcessedEventRepository();
         FailedEventRepository failedEventRepository = new InMemoryFailedEventRepository();
+        SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
         KafkaTemplate<String, DataProcessRequestedEvent> kafkaTemplate = mock(KafkaTemplate.class);
         jobRepository.save(JobEntity.requested("JOB-test", "test-user", "CSV", 1000, "idem-1"));
         DataProcessRequestedListener listener = new DataProcessRequestedListener(
@@ -95,13 +100,15 @@ class DataProcessRequestedListenerTest {
                 kafkaTemplate,
                 "data.process.retry",
                 "data.process.dlq",
-                3
+                3,
+                meterRegistry
         );
 
         listener.handle(requestEvent("EVT-retry", "JOB-test", 1, true));
 
         JobEntity updatedJob = jobRepository.findByJobId("JOB-test").orElseThrow();
         assertThat(updatedJob.getStatus()).isEqualTo(JobStatus.RETRYING);
+        assertThat(meterRegistry.counter("flowforge.worker.jobs.retried").count()).isEqualTo(1);
         verify(kafkaTemplate).send(eq("data.process.retry"), eq("JOB-test"), any(DataProcessRequestedEvent.class));
         assertThat(failedEventRepository.findByEventId("EVT-retry")).isEmpty();
     }
@@ -111,6 +118,7 @@ class DataProcessRequestedListenerTest {
         JobRepository jobRepository = new InMemoryJobRepository();
         ProcessedEventRepository processedEventRepository = new InMemoryProcessedEventRepository();
         FailedEventRepository failedEventRepository = new InMemoryFailedEventRepository();
+        SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
         KafkaTemplate<String, DataProcessRequestedEvent> kafkaTemplate = mock(KafkaTemplate.class);
         jobRepository.save(JobEntity.requested("JOB-test", "test-user", "CSV", 1000, "idem-1"));
         DataProcessRequestedListener listener = new DataProcessRequestedListener(
@@ -120,7 +128,8 @@ class DataProcessRequestedListenerTest {
                 kafkaTemplate,
                 "data.process.retry",
                 "data.process.dlq",
-                3
+                3,
+                meterRegistry
         );
 
         listener.handle(requestEvent("EVT-dlq", "JOB-test", 3, true));
@@ -128,6 +137,7 @@ class DataProcessRequestedListenerTest {
         JobEntity updatedJob = jobRepository.findByJobId("JOB-test").orElseThrow();
         assertThat(updatedJob.getStatus()).isEqualTo(JobStatus.DLQ);
         assertThat(failedEventRepository.findByEventId("EVT-dlq")).isPresent();
+        assertThat(meterRegistry.counter("flowforge.worker.jobs.dlq").count()).isEqualTo(1);
         verify(kafkaTemplate).send(eq("data.process.dlq"), eq("JOB-test"), any(DataProcessRequestedEvent.class));
     }
 
