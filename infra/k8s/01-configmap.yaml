@@ -9,7 +9,7 @@ data:
   postgres-db: flowforge
   redis-host: redis
   redis-port: "6379"
-  kafka-bootstrap-servers: kafka:9092
+  kafka-bootstrap-servers: flowforge-kafka-kafka-bootstrap:9092
   topic-requested: data.process.requested
   topic-retry: data.process.retry
   topic-dlq: data.process.dlq

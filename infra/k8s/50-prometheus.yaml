@@ -26,6 +26,11 @@ data:
         static_configs:
           - targets:
               - data-worker-service:8081
+
+      - job_name: kafka-exporter
+        static_configs:
+          - targets:
+              - flowforge-kafka-kafka-exporter:9404
 ---
 apiVersion: apps/v1
 kind: Deployment

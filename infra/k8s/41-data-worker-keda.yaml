@@ -13,7 +13,7 @@ spec:
   triggers:
     - type: kafka
       metadata:
-        bootstrapServers: kafka:9092
+        bootstrapServers: flowforge-kafka-kafka-bootstrap:9092
         consumerGroup: data-worker-group
         topic: data.process.requested
         lagThreshold: "100"

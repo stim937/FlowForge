@@ -22,6 +22,11 @@ k3d-delete:
 k3d-import-images:
 	k3d image import flowforge-data-api-service:latest flowforge-data-worker-service:latest -c event-platform
 
+strimzi-install:
+	kubectl apply -f infra/k8s/00-namespace.yaml
+	kubectl apply -f "https://strimzi.io/install/latest?namespace=event-platform" -n event-platform
+	kubectl rollout status deployment/strimzi-cluster-operator -n event-platform --timeout=300s
+
 k8s-apply:
 	kubectl apply -k infra/k8s/
 
@@ -41,3 +46,6 @@ k8s-prometheus-forward:
 
 k8s-grafana-forward:
 	kubectl port-forward svc/grafana 3000:3000 -n event-platform
+
+kafka-status:
+	kubectl get kafka,kafkanodepool,kafkatopic -n event-platform

@@ -1,6 +1,6 @@
 # Event-Driven Data Processing Platform
 
-Kafka 기반 비동기 데이터 처리 플랫폼이다. 현재는 Docker Compose 기반 API/Worker/Kafka/PostgreSQL/Redis/Prometheus/Grafana 실행, retry/DLQ/idempotency 처리, Kubernetes 기본 배포와 autoscaling/monitoring manifest까지 제공한다.
+Kafka 기반 비동기 데이터 처리 플랫폼이다. 현재는 Docker Compose 기반 API/Worker/Kafka/PostgreSQL/Redis/Prometheus/Grafana 실행, retry/DLQ/idempotency 처리, Kubernetes 배포, Strimzi Kafka, autoscaling/monitoring manifest까지 제공한다.
 
 ## 아키텍처
 
@@ -35,6 +35,7 @@ Prometheus/Grafana: API, JVM, worker outcome metrics
 - Kafka
 - Docker Compose
 - Kubernetes
+- Strimzi Kafka Operator
 - KEDA
 - Prometheus
 - Grafana
@@ -73,7 +74,7 @@ curl http://localhost:8081/actuator/prometheus
 
 ## Kubernetes 배포
 
-Kubernetes 배포 manifest는 `infra/k8s` 아래에 있다. 현재 범위에는 기본 배포, autoscaling, monitoring 리소스가 포함된다. Strimzi 기반 Kafka 관리는 이후 단계에서 별도로 추가한다.
+Kubernetes 배포 manifest는 `infra/k8s` 아래에 있다. 현재 범위에는 기본 배포, Strimzi Kafka, autoscaling, monitoring 리소스가 포함된다.
 
 사전 준비:
 
@@ -93,6 +94,12 @@ HPA/KEDA 준비:
 ```bash
 make metrics-install
 make keda-install
+```
+
+Strimzi Operator 설치:
+
+```bash
+make strimzi-install
 ```
 
 이미지 빌드:
@@ -118,6 +125,7 @@ Pod 상태 확인:
 ```bash
 kubectl get pods -n event-platform
 kubectl get ingress -n event-platform
+kubectl get kafka,kafkanodepool,kafkatopic -n event-platform
 kubectl get hpa -n event-platform
 kubectl get scaledobject -n event-platform
 kubectl get svc prometheus grafana -n event-platform
@@ -196,6 +204,37 @@ kubectl get deploy data-api-service data-worker-service -n event-platform
 
 대량 job 생성으로 Kafka lag를 만들면 KEDA가 `data-worker-service` replica를 늘린다. 부하가 줄고 lag가 해소되면 cooldown 이후 replica가 감소한다.
 
+## Strimzi Kafka
+
+Kubernetes 환경의 Kafka는 Strimzi Operator가 관리한다.
+
+```text
+Kafka cluster: flowforge-kafka
+Bootstrap service: flowforge-kafka-kafka-bootstrap:9092
+Node pool: dual-role
+Mode: KRaft
+Storage: ephemeral
+```
+
+Kafka topic은 `KafkaTopic` 리소스로 관리한다.
+
+| Topic | Partitions | Replicas |
+| --- | ---: | ---: |
+| `data.process.requested` | 6 | 1 |
+| `data.process.retry` | 6 | 1 |
+| `data.process.completed` | 3 | 1 |
+| `data.process.failed` | 3 | 1 |
+| `data.process.dlq` | 1 | 1 |
+| `notification.requested` | 3 | 1 |
+
+상태 확인:
+
+```bash
+make kafka-status
+kubectl get svc flowforge-kafka-kafka-bootstrap -n event-platform
+kubectl logs deploy/strimzi-cluster-operator -n event-platform
+```
+
 ## Monitoring 대시보드
 
 Prometheus는 다음 endpoint를 scrape한다.
@@ -203,6 +242,7 @@ Prometheus는 다음 endpoint를 scrape한다.
 ```text
 data-api-service:8080/actuator/prometheus
 data-worker-service:8081/actuator/prometheus
+flowforge-kafka-kafka-exporter:9404
 ```
 
 Grafana 기본 대시보드 `FlowForge Overview`는 다음 지표를 보여준다.
@@ -214,12 +254,15 @@ Grafana 기본 대시보드 `FlowForge Overview`는 다음 지표를 보여준�
   - `flowforge_worker_jobs_completed_total`
   - `flowforge_worker_jobs_retried_total`
   - `flowforge_worker_jobs_dlq_total`
+- Kafka consumer lag
+  - `kafka_consumergroup_lag`
 
 Prometheus에서 직접 확인:
 
 ```bash
 curl "http://localhost:9090/api/v1/query?query=up"
 curl "http://localhost:9090/api/v1/query?query=flowforge_worker_jobs_completed_total"
+curl "http://localhost:9090/api/v1/query?query=kafka_consumergroup_lag"
 ```
 
 리소스 삭제:
@@ -317,7 +360,7 @@ job 상태와 처리 건수를 조회한다.
 - `data.process.retry`: Worker가 재시도 대상 이벤트를 발행하고 다시 consume한다.
 - `data.process.dlq`: 재시도 한도를 초과한 이벤트가 이동한다.
 
-Phase 1에서는 Kafka topic auto-create를 사용한다. Phase 3에서 Strimzi `KafkaTopic` 리소스로 관리한다.
+Docker Compose 환경에서는 Kafka topic auto-create를 사용한다. Kubernetes 환경에서는 Strimzi `KafkaTopic` 리소스로 관리한다.
 
 ## Retry/DLQ 전략
 
