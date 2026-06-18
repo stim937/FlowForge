@@ -311,12 +311,23 @@ make helm-install HELM_NAMESPACE=event-platform-dev HELM_VALUES=infra/helm/platf
 
 ## CI 검증
 
-GitHub Actions 워크플로는 `.github/workflows/ci.yml`에 있다. push와 pull request에서 다음 항목을 검증한다.
+GitHub Actions 검증 워크플로는 `.github/workflows/ci.yml`에 있다. push와 pull request에서 다음 항목을 검증한다.
 
 - Gradle test
 - Docker Compose config
 - Helm lint/template
 - Kubernetes kustomize render
+
+컨테이너 이미지 워크플로는 `.github/workflows/images.yml`에 있다.
+
+- push와 pull request에서 `data-api-service`, `data-worker-service` Docker image build를 검증한다.
+- `main` branch push에서만 GHCR로 이미지를 push한다.
+- dev Helm values는 다음 이미지를 사용한다.
+
+```text
+ghcr.io/stim937/flowforge-data-api-service:latest
+ghcr.io/stim937/flowforge-data-worker-service:latest
+```
 
 ## Monitoring 대시보드
 
