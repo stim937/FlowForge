@@ -27,6 +27,16 @@ Prometheus/Grafana: API, JVM, worker outcome metrics
 
 상세 설계 문서는 `docs/architecture.md`에 있다.
 
+## 문서
+
+- `docs/architecture.md`: 전체 아키텍처와 운영 흐름
+- `docs/api-spec.md`: API 요청/응답 명세
+- `docs/kafka-topics.md`: Kafka topic과 event schema
+- `docs/database-schema.md`: DB schema와 Redis key
+- `docs/failure-retry-dlq.md`: retry/DLQ 처리 전략
+- `docs/load-test-result.md`: k6 결과 기록
+- `docs/troubleshooting.md`: 실행/운영 문제 해결
+
 ## 기술 스택
 
 - Java 17
