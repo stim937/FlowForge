@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - "codex/**"
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  validate:
+    name: Validate backend and platform manifests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run Gradle tests
+        run: |
+          docker run --rm \
+            -v "${GITHUB_WORKSPACE}:/workspace" \
+            -w /workspace \
+            gradle:8.10.2-jdk17 gradle test --no-daemon
+
+      - name: Validate Docker Compose config
+        run: docker compose config --quiet
+
+      - name: Lint Helm chart
+        run: |
+          docker run --rm \
+            -v "${GITHUB_WORKSPACE}:/workspace" \
+            -w /workspace \
+            alpine/helm:3.15.4 lint infra/helm/platform -f infra/helm/platform/values-local.yaml
+          docker run --rm \
+            -v "${GITHUB_WORKSPACE}:/workspace" \
+            -w /workspace \
+            alpine/helm:3.15.4 lint infra/helm/platform -f infra/helm/platform/values-dev.yaml
+
+      - name: Render Helm chart
+        run: |
+          docker run --rm \
+            -v "${GITHUB_WORKSPACE}:/workspace" \
+            -w /workspace \
+            alpine/helm:3.15.4 template flowforge-platform infra/helm/platform -f infra/helm/platform/values-local.yaml >/tmp/flowforge-helm-local.yaml
+          docker run --rm \
+            -v "${GITHUB_WORKSPACE}:/workspace" \
+            -w /workspace \
+            alpine/helm:3.15.4 template flowforge-platform infra/helm/platform -f infra/helm/platform/values-dev.yaml >/tmp/flowforge-helm-dev.yaml
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: v1.30.3
+
+      - name: Render Kubernetes kustomize manifests
+        run: kubectl kustomize infra/k8s >/tmp/flowforge-k8s.yaml

@@ -309,6 +309,15 @@ make strimzi-install STRIMZI_NAMESPACE=event-platform-dev
 make helm-install HELM_NAMESPACE=event-platform-dev HELM_VALUES=infra/helm/platform/values-dev.yaml
 ```
 
+## CI 검증
+
+GitHub Actions 워크플로는 `.github/workflows/ci.yml`에 있다. push와 pull request에서 다음 항목을 검증한다.
+
+- Gradle test
+- Docker Compose config
+- Helm lint/template
+- Kubernetes kustomize render
+
 ## Monitoring 대시보드
 
 Prometheus는 다음 endpoint를 scrape한다.
