@@ -261,6 +261,28 @@ infra/helm/platform/values-dev.yaml
 
 ```bash
 make helm-template
+make helm-lint
+```
+
+Helm CLI가 없는 환경에서는 Docker로 렌더링과 lint를 실행할 수 있다.
+
+```bash
+make helm-template-docker
+make helm-lint-docker
+```
+
+`make`가 없는 Windows 환경에서는 같은 명령을 직접 실행한다.
+
+```powershell
+docker run --rm `
+  -v "${PWD}:/workspace" `
+  -w /workspace `
+  alpine/helm:3.15.4 template flowforge-platform infra/helm/platform -f infra/helm/platform/values-local.yaml
+
+docker run --rm `
+  -v "${PWD}:/workspace" `
+  -w /workspace `
+  alpine/helm:3.15.4 lint infra/helm/platform -f infra/helm/platform/values-local.yaml
 ```
 
 설치:

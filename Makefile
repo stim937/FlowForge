@@ -1,5 +1,6 @@
 HELM_NAMESPACE ?= event-platform
 HELM_VALUES ?= infra/helm/platform/values-local.yaml
+HELM_IMAGE ?= alpine/helm:3.15.4
 STRIMZI_NAMESPACE ?= event-platform
 K6_IMAGE ?= grafana/k6:0.51.0
 K6_BASE_URL ?= http://host.docker.internal:8080
@@ -59,6 +60,15 @@ kafka-status:
 
 helm-template:
 	helm template flowforge-platform infra/helm/platform -f $(HELM_VALUES)
+
+helm-template-docker:
+	docker run --rm -v "$$(pwd):/workspace" -w /workspace $(HELM_IMAGE) template flowforge-platform infra/helm/platform -f $(HELM_VALUES)
+
+helm-lint:
+	helm lint infra/helm/platform -f $(HELM_VALUES)
+
+helm-lint-docker:
+	docker run --rm -v "$$(pwd):/workspace" -w /workspace $(HELM_IMAGE) lint infra/helm/platform -f $(HELM_VALUES)
 
 helm-install:
 	helm upgrade --install flowforge-platform infra/helm/platform -f $(HELM_VALUES) --namespace $(HELM_NAMESPACE) --create-namespace
