@@ -1,0 +1,111 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: data-worker-service
+  namespace: event-platform
+spec:
+  selector:
+    app: data-worker-service
+  ports:
+    - name: http
+      port: 8081
+      targetPort: 8081
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: data-worker-service
+  namespace: event-platform
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: data-worker-service
+  template:
+    metadata:
+      labels:
+        app: data-worker-service
+    spec:
+      containers:
+        - name: data-worker-service
+          image: flowforge-data-worker-service:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8081
+              name: http
+          env:
+            - name: SERVER_PORT
+              value: "8081"
+            - name: SPRING_DATASOURCE_URL
+              value: jdbc:postgresql://postgres:5432/flowforge
+            - name: SPRING_DATASOURCE_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: flowforge-secret
+                  key: postgres-user
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: flowforge-secret
+                  key: postgres-password
+            - name: SPRING_DATA_REDIS_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: flowforge-config
+                  key: redis-host
+            - name: SPRING_DATA_REDIS_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: flowforge-config
+                  key: redis-port
+            - name: SPRING_KAFKA_BOOTSTRAP_SERVERS
+              valueFrom:
+                configMapKeyRef:
+                  name: flowforge-config
+                  key: kafka-bootstrap-servers
+            - name: SPRING_KAFKA_CONSUMER_GROUP_ID
+              valueFrom:
+                configMapKeyRef:
+                  name: flowforge-config
+                  key: worker-consumer-group
+            - name: APP_KAFKA_TOPICS_REQUESTED
+              valueFrom:
+                configMapKeyRef:
+                  name: flowforge-config
+                  key: topic-requested
+            - name: APP_KAFKA_TOPICS_RETRY
+              valueFrom:
+                configMapKeyRef:
+                  name: flowforge-config
+                  key: topic-retry
+            - name: APP_KAFKA_TOPICS_DLQ
+              valueFrom:
+                configMapKeyRef:
+                  name: flowforge-config
+                  key: topic-dlq
+            - name: APP_WORKER_MAX_RETRY_COUNT
+              valueFrom:
+                configMapKeyRef:
+                  name: flowforge-config
+                  key: worker-max-retry-count
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 12
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi

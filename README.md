@@ -1,6 +1,6 @@
 # Event-Driven Data Processing Platform
 
-Kafka 기반 비동기 데이터 처리 플랫폼이다. Phase 1은 Docker Compose 환경에서 API, Worker, PostgreSQL, Redis, Kafka를 실행하고 `POST /api/v1/jobs` 요청이 Kafka 이벤트로 발행된 뒤 Worker가 consume하여 job 상태를 `COMPLETED`로 갱신하는 최소 기능을 제공한다.
+Kafka 기반 비동기 데이터 처리 플랫폼이다. 현재는 Docker Compose 기반 API/Worker/Kafka/PostgreSQL/Redis 실행, retry/DLQ/idempotency 처리, Kubernetes 기본 배포 manifest까지 제공한다.
 
 ## 아키텍처
 
@@ -33,6 +33,8 @@ Redis: job progress cache
 - Redis
 - Kafka
 - Docker Compose
+- Kubernetes
+- k3d 또는 kind
 
 ## 로컬 실행
 
@@ -54,6 +56,83 @@ make up
 docker compose ps
 curl http://localhost:8080/actuator/health
 curl http://localhost:8081/actuator/health
+```
+
+## Kubernetes 배포
+
+Phase 2 범위의 기본 Kubernetes 배포 manifest는 `infra/k8s` 아래에 있다. Strimzi/KEDA/Monitoring은 다음 단계에서 별도로 추가한다.
+
+사전 준비:
+
+- Docker
+- kubectl
+- k3d
+
+클러스터 생성:
+
+```bash
+make k3d-create
+```
+
+이미지 빌드:
+
+```bash
+docker compose build data-api-service data-worker-service
+```
+
+k3d 클러스터에 로컬 이미지 import:
+
+```bash
+make k3d-import-images
+```
+
+Kubernetes 리소스 적용:
+
+```bash
+make k8s-apply
+```
+
+Pod 상태 확인:
+
+```bash
+kubectl get pods -n event-platform
+kubectl get ingress -n event-platform
+```
+
+모든 Pod가 `Running` 또는 `Ready`가 된 뒤 API health 확인:
+
+```bash
+curl -H "Host: flowforge.local" http://localhost:8080/actuator/health
+```
+
+Kubernetes 환경 job 생성:
+
+```bash
+curl -X POST http://localhost:8080/api/v1/jobs \
+  -H "Host: flowforge.local" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "requester": "test-user",
+    "dataType": "CSV",
+    "itemCount": 10000,
+    "idempotencyKey": "k8s-demo-key-1",
+    "payload": {
+      "source": "mock"
+    }
+  }'
+```
+
+상태 조회:
+
+```bash
+curl -H "Host: flowforge.local" http://localhost:8080/api/v1/jobs/{jobId}
+```
+
+리소스 삭제:
+
+```bash
+make k8s-delete
+make k3d-delete
 ```
 
 ## 검증 curl
