@@ -1,6 +1,9 @@
 HELM_NAMESPACE ?= event-platform
 HELM_VALUES ?= infra/helm/platform/values-local.yaml
 STRIMZI_NAMESPACE ?= event-platform
+K6_IMAGE ?= grafana/k6:0.51.0
+K6_BASE_URL ?= http://host.docker.internal:8080
+K6_HOST_HEADER ?=
 
 up:
 	docker compose up -d --build
@@ -66,11 +69,26 @@ helm-delete:
 load-test:
 	k6 run load-test/k6/create-jobs.js
 
+load-test-docker:
+	docker run --rm -i -e BASE_URL=$(K6_BASE_URL) -e HOST_HEADER=$(K6_HOST_HEADER) -v "$$(pwd):/workspace" -w /workspace $(K6_IMAGE) run load-test/k6/create-jobs.js
+
+load-test-smoke-docker:
+	docker run --rm -i -e BASE_URL=$(K6_BASE_URL) -e HOST_HEADER=$(K6_HOST_HEADER) -e VUS=2 -e DURATION=10s -v "$$(pwd):/workspace" -w /workspace $(K6_IMAGE) run load-test/k6/create-jobs.js
+
 load-test-spike:
 	k6 run load-test/k6/spike-test.js
+
+load-test-spike-docker:
+	docker run --rm -i -e BASE_URL=$(K6_BASE_URL) -e HOST_HEADER=$(K6_HOST_HEADER) -v "$$(pwd):/workspace" -w /workspace $(K6_IMAGE) run load-test/k6/spike-test.js
 
 load-test-soak:
 	k6 run load-test/k6/soak-test.js
 
+load-test-soak-docker:
+	docker run --rm -i -e BASE_URL=$(K6_BASE_URL) -e HOST_HEADER=$(K6_HOST_HEADER) -v "$$(pwd):/workspace" -w /workspace $(K6_IMAGE) run load-test/k6/soak-test.js
+
 load-test-k8s:
 	HOST_HEADER=flowforge.local BASE_URL=http://localhost:8080 k6 run load-test/k6/create-jobs.js
+
+load-test-k8s-docker:
+	docker run --rm -i -e BASE_URL=$(K6_BASE_URL) -e HOST_HEADER=flowforge.local -v "$$(pwd):/workspace" -w /workspace $(K6_IMAGE) run load-test/k6/create-jobs.js

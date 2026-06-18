@@ -2,16 +2,64 @@
 
 이 문서는 k6 부하 테스트 실행 결과를 기록한다. 현재 저장소에는 실행 가능한 스크립트와 측정 항목 템플릿을 제공하며, 실제 수치는 테스트 환경에서 실행한 뒤 갱신한다.
 
+로컬에 k6 CLI가 없으면 Docker 기반 명령을 사용할 수 있다. Docker 컨테이너에서 호스트 API에 접근할 때는 `http://host.docker.internal:8080`을 사용한다.
+
+```bash
+make load-test-smoke-docker
+make load-test-docker
+make load-test-spike-docker
+make load-test-soak-docker
+```
+
 ## 실행 환경
 
 | 항목 | 값 |
 | --- | --- |
-| 실행일 | 미측정 |
-| 대상 환경 | Docker Compose 또는 k3d |
-| API URL | 미측정 |
-| Worker replicas | 미측정 |
-| Kafka | Docker Compose Kafka 또는 Strimzi Kafka |
-| Prometheus/Grafana | 미측정 |
+| 실행일 | 2026-06-18 |
+| 대상 환경 | Docker Compose smoke |
+| API URL | http://host.docker.internal:8080 |
+| Worker replicas | 1 |
+| Kafka | Docker Compose Kafka |
+| Prometheus/Grafana | Docker Compose로 기동 |
+
+## Smoke 검증
+
+명령:
+
+```powershell
+docker run --rm -i `
+  -e BASE_URL=http://host.docker.internal:8080 `
+  -e VUS=2 `
+  -e DURATION=10s `
+  -v "${PWD}:/workspace" `
+  -w /workspace `
+  grafana/k6:0.51.0 run load-test/k6/create-jobs.js
+```
+
+결과:
+
+| 지표 | 결과 |
+| --- | --- |
+| 총 요청 수 | 178 |
+| 성공률 | 100% |
+| 평균 응답시간 | 11.46ms |
+| P95 응답시간 | 15.39ms |
+| HTTP 실패율 | 0.00% |
+| k6 job 완료 수 | 178 COMPLETED |
+
+DB 검증:
+
+```sql
+select status, count(*)
+from jobs
+where idempotency_key like 'k6-%'
+group by status
+order by status;
+```
+
+```text
+COMPLETED | 178
+```
 
 ## 기본 부하 테스트
 
@@ -19,6 +67,7 @@
 
 ```bash
 make load-test
+make load-test-docker
 ```
 
 목표:
@@ -45,6 +94,7 @@ make load-test
 
 ```bash
 make load-test-spike
+make load-test-spike-docker
 ```
 
 목표:
@@ -71,6 +121,7 @@ API HPA scale-out 확인
 
 ```bash
 make load-test-soak
+make load-test-soak-docker
 ```
 
 목표:

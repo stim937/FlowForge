@@ -327,16 +327,40 @@ make load-test-spike
 make load-test-soak
 ```
 
+k6를 로컬에 설치하지 않은 환경에서는 Docker로 실행할 수 있다. Docker 컨테이너에서 호스트의 API에 접근해야 하므로 기본 대상은 `http://host.docker.internal:8080`이다.
+
+```bash
+make load-test-smoke-docker
+make load-test-docker
+make load-test-spike-docker
+make load-test-soak-docker
+```
+
+`make`가 없는 Windows 환경에서는 같은 명령을 직접 실행한다.
+
+```powershell
+docker run --rm -i `
+  -e BASE_URL=http://host.docker.internal:8080 `
+  -e VUS=2 `
+  -e DURATION=10s `
+  -v "${PWD}:/workspace" `
+  -w /workspace `
+  grafana/k6:0.51.0 run load-test/k6/create-jobs.js
+```
+
 Kubernetes Ingress를 대상으로 실행할 때는 Host 헤더를 지정한다.
 
 ```bash
 make load-test-k8s
+make load-test-k8s-docker
 ```
 
 직접 환경변수를 지정할 수도 있다.
 
 ```bash
 BASE_URL=http://localhost:8080 HOST_HEADER=flowforge.local k6 run load-test/k6/create-jobs.js
+make load-test-docker K6_BASE_URL=http://host.docker.internal:8080
+make load-test-k8s-docker K6_BASE_URL=http://host.docker.internal:8080
 ```
 
 스크립트:
