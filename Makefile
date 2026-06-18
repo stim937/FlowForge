@@ -79,6 +79,12 @@ helm-delete:
 load-test:
 	k6 run load-test/k6/create-jobs.js
 
+e2e:
+	k6 run load-test/k6/e2e-compose.js
+
+e2e-docker:
+	docker run --rm -i -e BASE_URL=$(K6_BASE_URL) -e HOST_HEADER=$(K6_HOST_HEADER) -v "$$(pwd):/workspace" -w /workspace $(K6_IMAGE) run load-test/k6/e2e-compose.js
+
 load-test-docker:
 	docker run --rm -i -e BASE_URL=$(K6_BASE_URL) -e HOST_HEADER=$(K6_HOST_HEADER) -v "$$(pwd):/workspace" -w /workspace $(K6_IMAGE) run load-test/k6/create-jobs.js
 

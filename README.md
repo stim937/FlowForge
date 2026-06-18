@@ -84,6 +84,24 @@ curl http://localhost:8081/actuator/prometheus
 - Grafana 계정: `admin` / `admin`
 - 기본 대시보드: `FlowForge Overview`
 
+로컬 E2E 검증:
+
+```bash
+make e2e-docker
+```
+
+이 검증은 정상 job이 `COMPLETED`가 되는지, `forceFail` job이 retry 이후 `DLQ`로 이동하고 DLQ API에서 조회되는지 확인한다.
+
+`make`가 없는 Windows 환경에서는 같은 명령을 직접 실행한다.
+
+```powershell
+docker run --rm -i `
+  -e BASE_URL=http://host.docker.internal:8080 `
+  -v "${PWD}:/workspace" `
+  -w /workspace `
+  grafana/k6:0.51.0 run load-test/k6/e2e-compose.js
+```
+
 ## Kubernetes 배포
 
 Kubernetes 배포 manifest는 `infra/k8s` 아래에 있다. 현재 범위에는 기본 배포, Strimzi Kafka, autoscaling, monitoring 리소스가 포함된다.
@@ -407,6 +425,7 @@ make load-test-k8s-docker K6_BASE_URL=http://host.docker.internal:8080
 
 스크립트:
 
+- `load-test/k6/e2e-compose.js`: job 생성부터 `COMPLETED`/`DLQ` 상태까지 확인하는 로컬 E2E 검증
 - `load-test/k6/create-jobs.js`: 50 VU, 3분 기본 부하 테스트
 - `load-test/k6/spike-test.js`: 10 VU에서 300 VU까지 증가하는 5분 스파이크 테스트
 - `load-test/k6/soak-test.js`: 10,000건 job 생성 대량 메시지 테스트
