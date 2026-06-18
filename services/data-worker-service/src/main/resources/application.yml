@@ -1,0 +1,45 @@
+server:
+  port: ${SERVER_PORT:8081}
+
+spring:
+  application:
+    name: data-worker-service
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/flowforge}
+    username: ${SPRING_DATASOURCE_USERNAME:flowforge}
+    password: ${SPRING_DATASOURCE_PASSWORD:flowforge}
+  jpa:
+    hibernate:
+      ddl-auto: update
+    open-in-view: false
+  data:
+    redis:
+      host: ${SPRING_DATA_REDIS_HOST:localhost}
+      port: ${SPRING_DATA_REDIS_PORT:6379}
+  kafka:
+    bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      group-id: ${SPRING_KAFKA_CONSUMER_GROUP_ID:data-worker-group}
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: com.flowforge.common.event
+        spring.json.value.default.type: com.flowforge.common.event.DataProcessRequestedEvent
+    listener:
+      ack-mode: record
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+app:
+  kafka:
+    topics:
+      requested: ${APP_KAFKA_TOPICS_REQUESTED:data.process.requested}
