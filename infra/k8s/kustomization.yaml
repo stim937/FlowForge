@@ -1,0 +1,16 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - 00-namespace.yaml
+  - 01-configmap.yaml
+  - 02-secret.yaml
+  - 10-postgres.yaml
+  - 11-redis.yaml
+  - 12-kafka.yaml
+  - 20-data-api-service.yaml
+  - 21-data-worker-service.yaml
+  - 30-ingress.yaml
+  - 40-data-api-hpa.yaml
+  - 41-data-worker-keda.yaml
+  - 50-prometheus.yaml
+  - 51-grafana.yaml

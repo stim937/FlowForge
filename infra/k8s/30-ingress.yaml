@@ -1,0 +1,18 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: data-api-service
+  namespace: event-platform
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: flowforge.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: data-api-service
+                port:
+                  number: 8080

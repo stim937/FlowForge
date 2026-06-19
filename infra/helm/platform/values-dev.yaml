@@ -1,0 +1,17 @@
+global:
+  namespace: event-platform-dev
+
+dataApiService:
+  image:
+    repository: ghcr.io/stim937/flowforge-data-api-service
+    tag: latest
+    pullPolicy: IfNotPresent
+
+dataWorkerService:
+  image:
+    repository: ghcr.io/stim937/flowforge-data-worker-service
+    tag: latest
+    pullPolicy: IfNotPresent
+
+ingress:
+  host: flowforge-dev.local

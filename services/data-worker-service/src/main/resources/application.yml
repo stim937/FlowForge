@@ -18,6 +18,9 @@ spring:
       port: ${SPRING_DATA_REDIS_PORT:6379}
   kafka:
     bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
     consumer:
       group-id: ${SPRING_KAFKA_CONSUMER_GROUP_ID:data-worker-group}
       auto-offset-reset: earliest
@@ -43,3 +46,7 @@ app:
   kafka:
     topics:
       requested: ${APP_KAFKA_TOPICS_REQUESTED:data.process.requested}
+      retry: ${APP_KAFKA_TOPICS_RETRY:data.process.retry}
+      dlq: ${APP_KAFKA_TOPICS_DLQ:data.process.dlq}
+  worker:
+    max-retry-count: ${APP_WORKER_MAX_RETRY_COUNT:3}

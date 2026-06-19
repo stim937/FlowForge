@@ -1,0 +1,60 @@
+name: Images
+
+on:
+  push:
+    branches:
+      - main
+      - "codex/**"
+  pull_request:
+    branches:
+      - main
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_OWNER: stim937
+  API_IMAGE_NAME: flowforge-data-api-service
+  WORKER_IMAGE_NAME: flowforge-data-worker-service
+
+jobs:
+  build:
+    name: Build service images
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build data-api-service image
+        run: |
+          docker build \
+            -f services/data-api-service/Dockerfile \
+            -t "${REGISTRY}/${IMAGE_OWNER}/${API_IMAGE_NAME}:${GITHUB_SHA}" \
+            -t "${REGISTRY}/${IMAGE_OWNER}/${API_IMAGE_NAME}:latest" \
+            .
+
+      - name: Build data-worker-service image
+        run: |
+          docker build \
+            -f services/data-worker-service/Dockerfile \
+            -t "${REGISTRY}/${IMAGE_OWNER}/${WORKER_IMAGE_NAME}:${GITHUB_SHA}" \
+            -t "${REGISTRY}/${IMAGE_OWNER}/${WORKER_IMAGE_NAME}:latest" \
+            .
+
+      - name: Login to GHCR
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login "${REGISTRY}" -u "${{ github.actor }}" --password-stdin
+
+      - name: Push data-api-service image
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          docker push "${REGISTRY}/${IMAGE_OWNER}/${API_IMAGE_NAME}:${GITHUB_SHA}"
+          docker push "${REGISTRY}/${IMAGE_OWNER}/${API_IMAGE_NAME}:latest"
+
+      - name: Push data-worker-service image
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          docker push "${REGISTRY}/${IMAGE_OWNER}/${WORKER_IMAGE_NAME}:${GITHUB_SHA}"
+          docker push "${REGISTRY}/${IMAGE_OWNER}/${WORKER_IMAGE_NAME}:latest"
